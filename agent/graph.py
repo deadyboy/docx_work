@@ -400,7 +400,9 @@ def _run_without_langgraph(
     while state.get("pending_fields"):
         _guard += 1
         if _guard > _max_iterations:
-            state["messages"].append("[graph] Safety limit reached, stopping.")  # type: ignore
+            msgs = list(state.get("messages", []))
+            msgs.append("[graph] Safety limit reached, stopping.")
+            state = _merge(state, {"messages": msgs})
             break
         update = node_extract(state)
         state = _merge(state, update)

@@ -57,8 +57,22 @@ def _ok(data: Any) -> ToolResult:
     return {"ok": True, "data": data, "error": None}
 
 
-def _fail(error: str, data: Any = None) -> ToolResult:
-    return {"ok": False, "data": data or {}, "error": error}
+def _fail(error: str, data: Any = None, debug_tb: Optional[str] = None) -> ToolResult:
+    result: ToolResult = {"ok": False, "data": data or {}, "error": error}
+    if debug_tb:
+        result["_debug_traceback"] = debug_tb
+    return result
+
+
+def _exc_fail(context: str, exc: Exception) -> ToolResult:
+    """Build a failure result from a caught exception.
+
+    The ``error`` field contains a concise ``<context>: <ExcType>: <message>``
+    string suitable for audit logs.  The full traceback is stored separately
+    under ``_debug_traceback`` so it doesn't flood the state messages.
+    """
+    brief = f"{context}: {type(exc).__name__}: {exc}"
+    return _fail(brief, debug_tb=traceback.format_exc(limit=5))
 
 
 def _has_parse_error(result: Any) -> bool:
@@ -99,7 +113,7 @@ def tool_extract_base(
             )
         return _ok(result)
     except Exception as e:
-        return _fail(f"exception in base extraction: {traceback.format_exc(limit=3)}")
+        return _exc_fail("exception in base extraction", e)
 
 
 def tool_extract_lab(
@@ -123,9 +137,7 @@ def tool_extract_lab(
             )
         return _ok(result)
     except Exception as e:
-        return _fail(
-            f"exception in lab[{spec.key}]: {traceback.format_exc(limit=3)}"
-        )
+        return _exc_fail(f"exception in lab[{spec.key}]", e)
 
 
 def tool_extract_panel(
@@ -149,9 +161,7 @@ def tool_extract_panel(
             )
         return _ok(result)
     except Exception as e:
-        return _fail(
-            f"exception in panel[{spec.key}]: {traceback.format_exc(limit=3)}"
-        )
+        return _exc_fail(f"exception in panel[{spec.key}]", e)
 
 
 def tool_extract_flags(
@@ -175,7 +185,7 @@ def tool_extract_flags(
             )
         return _ok(result)
     except Exception as e:
-        return _fail(f"exception in flags: {traceback.format_exc(limit=3)}")
+        return _exc_fail("exception in flags", e)
 
 
 def tool_extract_ecmo(
@@ -201,7 +211,7 @@ def tool_extract_ecmo(
             )
         return _ok(result)
     except Exception as e:
-        return _fail(f"exception in ecmo: {traceback.format_exc(limit=3)}")
+        return _exc_fail("exception in ecmo", e)
 
 
 def tool_compute_transfusion_totals(
@@ -246,7 +256,7 @@ def tool_compute_transfusion_totals(
 
         return _ok(totals)
     except Exception as e:
-        return _fail(f"exception in transfusion totals: {traceback.format_exc(limit=3)}")
+        return _exc_fail("exception in transfusion totals", e)
 
 
 # ---------------------------------------------------------------------------

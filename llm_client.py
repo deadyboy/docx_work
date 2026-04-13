@@ -36,7 +36,7 @@ import requests
 
 try:
     import json_repair  # optional – improves robustness against partial JSON
-except Exception:
+except ImportError:
     json_repair = None
 
 # ---------------------------------------------------------------------------
