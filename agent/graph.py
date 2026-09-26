@@ -1,63 +1,14 @@
-"""LangGraph agent graph for medical record extraction.
+"""Field-oriented LangGraph workflow for DOCX medical-record extraction.
 
-Graph topology
---------------
-::
+Topology: load_docs -> plan -> extract (while fields remain) -> postprocess -> END.
 
-    START
-      │
-      ▼
-    [load_docs]   – parse DOCX files into Block sequences
-      │
-      ▼
-    [plan]        – build ordered list of fields to extract
-      │
-      ▼
-    [extract]     – run the next pending field's tool
-      │
-      ├─(ok)─────────────────────────────────────────────┐
-      │                                                   │
-      ├─(parse_error, retries_left)─→ [retry_expand] ────┤
-      │                                                   │
-      └─(parse_error, no retries)───→ [log_skip] ────────┤
-                                                          │
-                                                    (more pending?)
-                                                          │
-                                              yes ◄───────┤──────► no
-                                              │                     │
-                                           [extract]            [postprocess]
-                                                                    │
-                                                                    ▼
-                                                                  END
-
-Retry strategy
---------------
-When a tool returns ``ok=False`` and the field's retry count is below
-``state["max_retries"]``:
-
-* ``retry_expand`` doubles ``k_course`` / ``k_free`` in the spec to widen the
-  recall window and then re-queues the field at the front of ``pending_fields``.
-
-The ``postprocess`` node runs ``tool_compute_transfusion_totals`` and then
-packages the final flat result dict.
-
-Usage
------
-::
-
-    from docx_work.agent.graph import run_patient_agent
-
-    result = run_patient_agent(
-        patient_dir="/data/patient_001",
-        model="qwen3:8b",
-        ecmo_model="qwen14b-structured:latest",
-    )
-    print(result["results"])
+Retries are bounded per field.  Lab and panel retries widen the recall window;
+successful fields are not re-run.  This graph intentionally does not own the
+image/PDF slicing pipeline; cross-repository dispatch belongs to a thin
+top-level orchestrator.
 """
-
 from __future__ import annotations
 
-import copy
 from typing import Any, Dict, List, Optional
 
 from .state import PatientState, make_initial_state, DEFAULT_FIELD_KEYS

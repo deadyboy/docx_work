@@ -23,7 +23,7 @@ Design principles
 
 from __future__ import annotations
 
-import os
+from dataclasses import replace
 import traceback
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -44,6 +44,7 @@ from ..router import (
     _sum_lab_values,
 )
 from ..extract_base import extract_patient_base_bundle
+from ..llm_ollama import use_backend
 
 
 # ---------------------------------------------------------------------------
@@ -101,11 +102,11 @@ def tool_extract_base(
     backend: str = "ollama",
 ) -> ToolResult:
     """Extract the 22 base fields (demographics, admission/discharge dates, etc.)."""
-    os.environ.setdefault("LLM_BACKEND", backend)
     try:
-        result = extract_patient_base_bundle(
-            model=model, docs=docs, patient_dir=patient_dir
-        )
+        with use_backend(backend):
+            result = extract_patient_base_bundle(
+                model=model, docs=docs, patient_dir=patient_dir
+            )
         if _has_parse_error(result):
             return _fail(
                 f"parse_error in base extraction: {result.get('_error', 'unknown')}",
@@ -125,11 +126,14 @@ def tool_extract_lab(
     backend: str = "ollama",
 ) -> ToolResult:
     """Extract time-series lab values for a single LabFieldSpec."""
-    os.environ.setdefault("LLM_BACKEND", backend)
     try:
-        result = extract_lab_field(
-            model=model, docs=docs, spec=spec, dump_contexts_dir=dump_contexts_dir
-        )
+        with use_backend(backend):
+            result = extract_lab_field(
+                model=model,
+                docs=docs,
+                spec=spec,
+                dump_contexts_dir=dump_contexts_dir,
+            )
         if _has_parse_error(result):
             return _fail(
                 f"parse_error in lab[{spec.key}]: {result.get('_error', 'unknown')}",
@@ -149,11 +153,14 @@ def tool_extract_panel(
     backend: str = "ollama",
 ) -> ToolResult:
     """Extract panel results (multi-analyte) for a single PanelFieldSpec."""
-    os.environ.setdefault("LLM_BACKEND", backend)
     try:
-        result = extract_panel_field(
-            model=model, docs=docs, spec=spec, dump_contexts_dir=dump_contexts_dir
-        )
+        with use_backend(backend):
+            result = extract_panel_field(
+                model=model,
+                docs=docs,
+                spec=spec,
+                dump_contexts_dir=dump_contexts_dir,
+            )
         if _has_parse_error(result):
             return _fail(
                 f"parse_error in panel[{spec.key}]: {result.get('_error', 'unknown')}",
@@ -173,11 +180,14 @@ def tool_extract_flags(
     backend: str = "ollama",
 ) -> ToolResult:
     """Extract boolean flag fields (diagnoses, procedures, medications)."""
-    os.environ.setdefault("LLM_BACKEND", backend)
     try:
-        result = extract_flags_field(
-            model=model, docs=docs, spec=spec, dump_contexts_dir=dump_contexts_dir
-        )
+        with use_backend(backend):
+            result = extract_flags_field(
+                model=model,
+                docs=docs,
+                spec=spec,
+                dump_contexts_dir=dump_contexts_dir,
+            )
         if _has_parse_error(result):
             return _fail(
                 f"parse_error in flags: {result.get('_error', 'unknown')}",
@@ -196,14 +206,14 @@ def tool_extract_ecmo(
     backend: str = "ollama",
 ) -> ToolResult:
     """Extract ECMO episode data (on/off times, mode, outcome)."""
-    os.environ.setdefault("LLM_BACKEND", backend)
     try:
-        result = extract_ecmo_field(
-            model=model,
-            docs=docs,
-            spec=ECMO_BUNDLE_SPEC,
-            dump_contexts_dir=dump_contexts_dir,
-        )
+        with use_backend(backend):
+            result = extract_ecmo_field(
+                model=model,
+                docs=docs,
+                spec=ECMO_BUNDLE_SPEC,
+                dump_contexts_dir=dump_contexts_dir,
+            )
         if _has_parse_error(result):
             return _fail(
                 f"parse_error in ecmo: {result.get('_error', 'unknown')}",
@@ -259,6 +269,18 @@ def tool_compute_transfusion_totals(
         return _exc_fail("exception in transfusion totals", e)
 
 
+def _retry_adjusted_spec(spec: Any, state: Dict[str, Any]) -> Any:
+    """Widen recall windows for lab/panel retries instead of repeating unchanged work."""
+    attempt = int(state.get("retry_counts", {}).get(spec.key, 0))
+    if attempt <= 0:
+        return spec
+    factor = 2 ** attempt
+    return replace(
+        spec,
+        k_course=min(max(spec.k_course * factor, spec.k_course + 1), 8),
+        k_free=min(max(spec.k_free * factor, spec.k_free + 1), 4),
+    )
+
 # ---------------------------------------------------------------------------
 # Tool registry – maps field key → (tool_function, kwargs_builder)
 # ---------------------------------------------------------------------------
@@ -279,7 +301,7 @@ def _build_tool_registry() -> Dict[str, Any]:
             return tool_extract_lab(
                 docs=state["docs"],
                 model=state["model"],
-                spec=_s,
+                spec=_retry_adjusted_spec(_s, state),
                 dump_contexts_dir=state.get("dump_contexts_dir"),
                 backend=state.get("backend", "ollama"),
             )
@@ -296,7 +318,7 @@ def _build_tool_registry() -> Dict[str, Any]:
             return tool_extract_panel(
                 docs=state["docs"],
                 model=state["model"],
-                spec=_s,
+                spec=_retry_adjusted_spec(_s, state),
                 dump_contexts_dir=state.get("dump_contexts_dir"),
                 backend=state.get("backend", "ollama"),
             )

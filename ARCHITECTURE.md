@@ -594,3 +594,33 @@ LangGraph 要求 state 是 TypedDict 以支持增量更新（`dict.update()` 合
 ---
 
 *文档作者：Copilot Coding Agent，基于 deadyboy/docx_work 和 deadyboy/pdf_work 仓库深度分析生成。*
+
+---
+
+## 7. 2026-09 联合审查后的收敛边界
+
+本节约束 `docx_work#1` 与 `pdf_work#1` 的共同演进，避免两个仓库各自固化一套不兼容的 Agent 框架。
+
+### 共享的是契约，不是业务 state
+
+- 顶层输入只共享粗粒度类型：`docx | image | pdf | mixed | unknown`；独立 orchestrator 决定调用哪个子 pipeline。
+- LLM backend 语义统一为 `ollama | vllm`；业务 extractor 不自行决定后端。
+- retry 以最小失败单元计数、有限重试、成功后清除失败状态；系统级错误不伪装成单项可重试错误。
+- 错误必须带可定位的 field/image key，并保留可审计信息。
+
+| 维度 | docx_work | pdf_work |
+|---|---|---|
+| state 粒度 | patient + field | input + image/slice |
+| graph 主循环 | 字段队列 | 切图/视觉提取/合并/QC |
+| retry 单元 | field；lab/panel 扩大召回窗口 | image；只重做失败图片 |
+| 输出 | 字段 dict + evidence/QC | 时序行列表 + merge |
+| router | 粗粒度媒体路由契约 | 视觉记录单 subtype 分类 |
+
+因此不合并 `PatientState` 与 `ImageProcessingState`，也不让两个仓库互相 import。后续若抽公共包，应只抽出 routing/LLM/retry/error 这些薄契约（例如 `icu_agent_core`），两个业务 pipeline 继续独立。
+
+### 当前两份 draft PR 的合入原则
+
+1. `docx_work#1` 负责 DOCX field-agent adapter 和粗粒度 routing contract。
+2. `pdf_work#1` 负责 image/PDF vision-agent adapter；DOCX 只用于明确 handoff，不创建虚假的 graph node。
+3. 两边 LangGraph 锁在同一 1.2.x 兼容线，再独立评估升级。
+4. `mixed`、DOCX、record2 等能力只有在真实 node、prompt/cutter 映射和测试都存在时才能宣称支持。
