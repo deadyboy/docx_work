@@ -13,6 +13,6 @@ jobs:
         with:
           python-version: "3.11"
       - name: Syntax check
-        run: python -m py_compile agent/*.py llm_client.py llm_ollama.py
+        run: python -m py_compile agent/*.py agent_cli.py llm_client.py llm_ollama.py
       - name: Router contract tests
         run: python -m unittest discover -s tests -v

@@ -109,6 +109,7 @@ def node_extract(state: PatientState) -> Dict[str, Any]:
 
     if tool_result["ok"]:
         results[field_key] = tool_result["data"]
+        errors.pop(field_key, None)
         messages.append(f"[extract] '{field_key}' succeeded.")
         return {
             "pending_fields": remaining,
